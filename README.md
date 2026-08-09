@@ -67,6 +67,8 @@ From now on, launch Deadlock through the **Deadlock RPC** shortcut instead of di
 
 If you prefer to launch Deadlock your own way, add `-condebug` to Deadlock's launch options in Steam (right-click Deadlock in your library, Properties, Launch Options). This generates the log file the app needs to function.
 
+If Deadlock is already running when you start the app, it is detected automatically and your profile shows a generic **In Game** status. Hero, phase, and match details need the game log, so they appear once the game is (re)started with `-condebug` — either through the shortcut or with the Steam launch option set.
+
 > [!TIP]
 > You can add the Deadlock RPC executable as a non-Steam game so you can launch it straight from your Steam library. [Steam's guide](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC) explains how.
 
@@ -124,6 +126,7 @@ When a release renames or restructures config keys, the release includes a migra
 | Key | Default |
 |-----|---------|
 | `presence.status.game_not_running` | `"Not Running"` |
+| `presence.status.in_game` | `"In Game"` |
 | `presence.status.in_main_menu` | `"Browsing the Main Menu"` |
 | `presence.status.in_hideout` | `"In the Hideout"` |
 | `presence.status.in_matchmaking` | `"Searching for a Match..."` |

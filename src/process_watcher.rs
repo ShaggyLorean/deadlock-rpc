@@ -1,4 +1,4 @@
-use crate::game_state::GameState;
+use crate::game_state::{GamePhase, GameState};
 use log::info;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -17,8 +17,24 @@ impl ProcessWatcher {
                 info!("[process] Deadlock process detected");
             } else if !alive && was_alive {
                 info!("[process] Deadlock process gone — resetting state");
-                state.lock().unwrap().reset();
             }
+
+            // Feed the observation every poll, not just on edges: the log watcher's
+            // startup resync can land on a stale phase (e.g. a leftover shutdown or
+            // an in-match line from a crashed session) at any time, and this keeps
+            // correcting the state until real log data takes over.
+            {
+                let mut gs = state.lock().unwrap();
+                let prev_phase = gs.phase;
+                gs.apply_process_signal(alive);
+                if alive && !was_alive && prev_phase == GamePhase::NotRunning && gs.phase == GamePhase::Running {
+                    info!(
+                        "[process] Game is already running without log data — showing generic In Game presence. \
+                        For hero and match details, launch the game via Deadlock RPC or add -condebug to Steam launch options."
+                    );
+                }
+            }
+
             was_alive = alive;
             thread::sleep(Duration::from_secs(POLL_SECS));
         }
@@ -26,7 +42,7 @@ impl ProcessWatcher {
 }
 
 #[cfg(target_os = "linux")]
-fn is_deadlock_running() -> bool {
+pub fn is_deadlock_running() -> bool {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return false;
     };
@@ -45,7 +61,7 @@ fn is_deadlock_running() -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn is_deadlock_running() -> bool {
+pub fn is_deadlock_running() -> bool {
     use std::ffi::CStr;
     use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
     use winapi::um::tlhelp32::{

@@ -33,6 +33,9 @@ impl MatchMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GamePhase {
     NotRunning,
+    // The game process is alive but no usable log data exists — e.g. the game was
+    // started outside the app without -condebug. Shows a generic "In Game" presence.
+    Running,
     MainMenu,
     Hideout,
     InQueue,
@@ -46,6 +49,7 @@ impl GamePhase {
     pub fn description(self) -> &'static str {
         match self {
             GamePhase::NotRunning => "Not Running",
+            GamePhase::Running => "In Game",
             GamePhase::MainMenu => "Main Menu",
             GamePhase::Hideout => "Hideout",
             GamePhase::InQueue => "Searching for Match",
@@ -60,7 +64,11 @@ impl GamePhase {
     pub fn shows_hero(self) -> bool {
         !matches!(
             self,
-            GamePhase::NotRunning | GamePhase::MainMenu | GamePhase::PostMatch | GamePhase::Spectating
+            GamePhase::NotRunning
+                | GamePhase::Running
+                | GamePhase::MainMenu
+                | GamePhase::PostMatch
+                | GamePhase::Spectating
         )
     }
 }
@@ -94,6 +102,9 @@ pub struct GameState {
     pub(crate) party_id: Option<u64>,
     pub(crate) party_members: HashSet<u64>,
     pub(crate) pending_player_count: u32,
+    // Last observation from the process watcher. Survives reset() so stale log
+    // shutdown events can't mark a live game as not running.
+    pub(crate) process_alive: bool,
 }
 
 impl GameState {
@@ -111,11 +122,40 @@ impl GameState {
             party_id: None,
             party_members: HashSet::new(),
             pending_player_count: 0,
+            process_alive: false,
         }
     }
 
     pub fn reset(&mut self) {
+        let process_alive = self.process_alive;
         *self = Self::new();
+        self.process_alive = process_alive;
+        // A reset normally means the game closed, but if the process is still
+        // alive the shutdown signal came from stale log data (previous session).
+        // Keep showing the generic In Game presence instead of Not Running.
+        if process_alive {
+            self.phase = GamePhase::Running;
+        }
+    }
+
+    // Feeds process watcher observations into the state machine.
+    //
+    // The log watcher owns detailed phase tracking; this covers the gap where the
+    // game runs without usable log data (started from Steam without -condebug, so
+    // no restart is needed just to be detected):
+    // - process alive with no known phase → generic In Game presence
+    // - process gone → full reset back to Not Running
+    //
+    // Never overrides a phase the log watcher has already established.
+    pub fn apply_process_signal(&mut self, alive: bool) {
+        self.process_alive = alive;
+        if alive {
+            if self.phase == GamePhase::NotRunning {
+                self.phase = GamePhase::Running;
+            }
+        } else if self.phase != GamePhase::NotRunning {
+            self.reset();
+        }
     }
 
     pub fn enter_hideout(&mut self) {
@@ -230,6 +270,7 @@ impl GameState {
         use crate::config::apply_vars;
         match self.phase {
             GamePhase::NotRunning => cfg.game_not_running.clone(),
+            GamePhase::Running => cfg.in_game.clone(),
             GamePhase::MainMenu => cfg.in_main_menu.clone(),
             GamePhase::Hideout => {
                 if let Some(text) = hideout_text.filter(|t| !t.is_empty()) {
@@ -300,4 +341,76 @@ impl GameState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_signal_promotes_not_running_to_running() {
+        let mut gs = GameState::new();
+        gs.apply_process_signal(true);
+        assert_eq!(gs.phase, GamePhase::Running);
+    }
+
+    #[test]
+    fn process_signal_never_overrides_log_derived_phase() {
+        let mut gs = GameState::new();
+        gs.start_match();
+        gs.apply_process_signal(true);
+        assert_eq!(gs.phase, GamePhase::InMatch);
+    }
+
+    #[test]
+    fn process_gone_resets_to_not_running() {
+        let mut gs = GameState::new();
+        gs.apply_process_signal(true);
+        gs.apply_process_signal(false);
+        assert_eq!(gs.phase, GamePhase::NotRunning);
+    }
+
+    #[test]
+    fn process_gone_clears_stale_log_phase() {
+        // A crashed session can leave the log resync stuck on an in-game phase.
+        let mut gs = GameState::new();
+        gs.start_match();
+        gs.hero_key = Some("hero_dynamo".to_string());
+        gs.apply_process_signal(false);
+        assert_eq!(gs.phase, GamePhase::NotRunning);
+        assert_eq!(gs.hero_key, None);
+    }
+
+    #[test]
+    fn process_signal_is_noop_when_nothing_runs() {
+        let mut gs = GameState::new();
+        gs.apply_process_signal(false);
+        assert_eq!(gs.phase, GamePhase::NotRunning);
+    }
+
+    #[test]
+    fn reset_keeps_running_phase_while_process_alive() {
+        // Stale log data replaying a shutdown must not mark a live game as closed.
+        let mut gs = GameState::new();
+        gs.apply_process_signal(true);
+        gs.start_match();
+        gs.reset();
+        assert_eq!(gs.phase, GamePhase::Running);
+    }
+
+    #[test]
+    fn reset_goes_to_not_running_without_process() {
+        let mut gs = GameState::new();
+        gs.start_match();
+        gs.reset();
+        assert_eq!(gs.phase, GamePhase::NotRunning);
+    }
+
+    #[test]
+    fn running_phase_hides_hero_and_uses_in_game_status() {
+        let mut gs = GameState::new();
+        gs.apply_process_signal(true);
+        assert!(!gs.phase.shows_hero());
+        let cfg = crate::config::StatusStrings::default();
+        assert_eq!(gs.presence_status(None, None, &cfg), "In Game");
+    }
+}
 

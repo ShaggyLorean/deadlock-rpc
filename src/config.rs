@@ -71,6 +71,7 @@ pub struct PresenceConfig {
 #[serde(default)]
 pub struct StatusStrings {
     pub game_not_running: String,
+    pub in_game: String,
     pub in_main_menu: String,
     pub in_hideout: String,
     pub in_matchmaking: String,
@@ -122,6 +123,7 @@ impl Default for StatusStrings {
     fn default() -> Self {
         Self {
             game_not_running: "Not Running".to_string(),
+            in_game: "In Game".to_string(),
             in_main_menu: "Browsing the Main Menu".to_string(),
             in_hideout: "In the Hideout".to_string(),
             in_matchmaking: "Searching for a Match...".to_string(),

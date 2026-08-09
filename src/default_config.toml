@@ -31,6 +31,9 @@ details_without_hero = "{phase}"
 [presence.status]
 # Status strings for each game phase. Supports {mode} where noted.
 game_not_running = "Not Running"
+# Shown when the game is running but no log data is available
+# (e.g. it was started outside Deadlock RPC without -condebug).
+in_game = "In Game"
 in_main_menu = "Browsing the Main Menu"
 in_hideout = "In the Hideout"
 in_matchmaking = "Searching for a Match..."

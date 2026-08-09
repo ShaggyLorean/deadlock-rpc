@@ -232,12 +232,15 @@ std::process::exit(0);
         let show_party = phase == GamePhase::Hideout && party_size > 1;
 
         // Hideout: hideout text on top, party line on bottom (or nothing if solo).
-        // NotRunning: status text only, no second line.
+        // NotRunning/Running: status text only, no second line.
         // All other phases: hero/phase label on top, game status on bottom, no party.
         let (details, state_opt): (&str, Option<&str>) = if phase == GamePhase::Hideout {
             let s = if show_party { Some("In a Party") } else { None };
             (game_status.as_str(), s)
-        } else if phase == GamePhase::NotRunning || phase == GamePhase::Spectating {
+        } else if phase == GamePhase::NotRunning
+            || phase == GamePhase::Running
+            || phase == GamePhase::Spectating
+        {
             (game_status.as_str(), None)
         } else {
             (hero_label.as_str(), Some(game_status.as_str()))
@@ -337,7 +340,14 @@ fn main() {
     }
 
     if !no_launch {
-        launcher::launch_deadlock();
+        // Relaunching does nothing useful when the game is already up (Steam
+        // ignores it, and -condebug can't apply to a running process), so skip
+        // it and let the process watcher pick the game up as-is.
+        if process_watcher::is_deadlock_running() {
+            info!("[launcher] Deadlock is already running — skipping launch.");
+        } else {
+            launcher::launch_deadlock();
+        }
     }
 
     let log_path = steam::find_console_log(cfg.general.game_folder.as_deref());
