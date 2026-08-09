@@ -4,6 +4,51 @@ use std::path::PathBuf;
 
 const DEADLOCK_APP_ID: &str = "1422450";
 
+// CLI flags owned by deadlock-rpc itself. Anything after them is treated as a
+// game command handed over by Steam via `%command%` (wrapper mode).
+const OWN_FLAGS: &[&str] = &[
+    "--no-launch",
+    "--no-shortcut",
+    "--generate-config",
+    "--simulate-update",
+];
+
+// Extracts the game command from argv for Steam wrapper mode
+// (launch options: `"...\deadlock-rpc.exe" %command%`).
+// Returns everything from the first argument that is not one of our own flags;
+// empty when the app was started normally.
+pub fn split_wrapper_cmd(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .position(|a| !OWN_FLAGS.contains(&a.as_str()))
+        .map(|i| args[i + 1..].to_vec())
+        .unwrap_or_default()
+}
+
+// Launches the game command Steam handed us, appending -condebug so the console
+// log is always written. The game runs as our child process, which keeps Steam's
+// in-game status tied to this process tree for the whole session.
+pub fn spawn_wrapped_game(cmd: &[String]) {
+    let Some((program, rest)) = cmd.split_first() else {
+        return;
+    };
+    let mut game_args: Vec<&str> = rest.iter().map(String::as_str).collect();
+    if !game_args.iter().any(|a| a.eq_ignore_ascii_case("-condebug")) {
+        game_args.push("-condebug");
+    }
+    info!("[launcher] Wrapper mode: spawning {} {}", program, game_args.join(" "));
+    match std::process::Command::new(program).args(&game_args).spawn() {
+        Ok(_) => info!("[launcher] Game spawned."),
+        Err(e) => {
+            warn!("[launcher] Failed to spawn wrapped game: {e}");
+            crate::notify::warn_alert(
+                "Deadlock RPC could not start the game.\n\
+                Check Deadlock's launch options in Steam.",
+            );
+        }
+    }
+}
+
 pub fn launch_deadlock() {
     info!("[launcher] Launching Deadlock with -condebug...");
     match launch_via_steam() {
@@ -249,4 +294,47 @@ fn install_platform_shortcut(exe: &std::path::Path, dest: &std::path::Path) -> R
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_wrapper_cmd;
+
+    fn v(s: &[&str]) -> Vec<String> {
+        s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn no_args_is_not_wrapper_mode() {
+        assert!(split_wrapper_cmd(&v(&["rpc.exe"])).is_empty());
+    }
+
+    #[test]
+    fn own_flags_only_is_not_wrapper_mode() {
+        assert!(split_wrapper_cmd(&v(&["rpc.exe", "--no-launch", "--no-shortcut"])).is_empty());
+    }
+
+    #[test]
+    fn game_command_is_extracted() {
+        assert_eq!(
+            split_wrapper_cmd(&v(&["rpc.exe", "game.exe", "-foo"])),
+            v(&["game.exe", "-foo"])
+        );
+    }
+
+    #[test]
+    fn own_flags_before_game_command_are_skipped() {
+        assert_eq!(
+            split_wrapper_cmd(&v(&["rpc.exe", "--no-shortcut", "game.exe", "-foo"])),
+            v(&["game.exe", "-foo"])
+        );
+    }
+
+    #[test]
+    fn flags_after_game_command_stay_with_the_game() {
+        assert_eq!(
+            split_wrapper_cmd(&v(&["rpc.exe", "game.exe", "--no-launch"])),
+            v(&["game.exe", "--no-launch"])
+        );
+    }
 }

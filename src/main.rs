@@ -297,6 +297,15 @@ fn main() {
 
     logger::init();
 
+    // Steam wrapper mode: launch options `"...\deadlock-rpc.exe" %command%` hand
+    // us the game command line. Spawn the game first so its startup is never
+    // delayed by anything the app does below.
+    let wrapper_cmd = launcher::split_wrapper_cmd(&args);
+    let wrapper_mode = !wrapper_cmd.is_empty();
+    if wrapper_mode {
+        launcher::spawn_wrapped_game(&wrapper_cmd);
+    }
+
     // Loaded before the update check so auto_update is known by then.
     let cfg = config::load();
     info!("[config] Loaded from config.toml");
@@ -312,18 +321,27 @@ fn main() {
     // Check for updates before acquiring the instance lock.
     // If an update is applied: on Linux exec() replaces this process in-place;
     // on Windows we exit before the port is ever bound — so no lock conflicts.
-    updater::check_on_startup(cfg.general.auto_update);
+    // Skipped in wrapper mode: the post-update re-exec would replay the wrapper
+    // args and spawn the game a second time. The tray check remains available.
+    if wrapper_mode {
+        info!("[updater] Startup check skipped in wrapper mode.");
+    } else {
+        updater::check_on_startup(cfg.general.auto_update);
+    }
 
     let instance_lock = try_acquire_single_instance_lock();
 
     let no_launch_flag = args.iter().any(|a| a == "--no-launch");
     // --no-launch CLI flag always overrides auto_launch, even if config enables it.
-    let no_launch = no_launch_flag || !cfg.general.launch_game_on_start;
+    // Wrapper mode spawned the game itself, so the Steam launcher is never needed.
+    let no_launch = wrapper_mode || no_launch_flag || !cfg.general.launch_game_on_start;
     #[cfg(not(debug_assertions))]
     let no_shortcut = args.iter().any(|a| a == "--no-shortcut");
 
     if instance_lock.is_none() {
-        if !no_launch_flag {
+        if wrapper_mode {
+            info!("[deadlock-rpc] Another instance is already running — game spawned, exiting.");
+        } else if !no_launch_flag {
             info!("[deadlock-rpc] Another instance is running — re-triggering launch (Steam may be updating).");
             launcher::launch_deadlock();
         } else {
@@ -333,9 +351,11 @@ fn main() {
     }
     let _instance_lock = instance_lock;
 
-    // Only install the shortcut in release builds so dev runs don't overwrite it with a debug path.
+    // Only install the shortcut in release builds so dev runs don't overwrite it
+    // with a debug path. Skipped in wrapper mode: the prompt would pop up behind
+    // the game that is starting fullscreen right now.
     #[cfg(not(debug_assertions))]
-    if !no_shortcut {
+    if !no_shortcut && !wrapper_mode {
         launcher::install_shortcut(&cfg);
     }
 

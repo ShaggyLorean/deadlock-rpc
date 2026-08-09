@@ -65,7 +65,15 @@
 
 From now on, launch Deadlock through the **Deadlock RPC** shortcut instead of directly. This is what activates Rich Presence. Keep the extracted folder in place, the app writes its logs there.
 
-If you prefer to launch Deadlock your own way, add `-condebug` to Deadlock's launch options in Steam (right-click Deadlock in your library, Properties, Launch Options). This generates the log file the app needs to function.
+**Prefer launching from Steam?** Set Deadlock's launch options (right-click Deadlock in your library, Properties, Launch Options) to:
+
+```
+"C:\path\to\deadlock-rpc.exe" %command%
+```
+
+Steam then starts Deadlock RPC together with the game every time you hit Play, the game is launched with `-condebug` automatically, and with `exit_when_game_closes` enabled the app closes when the game does. Keep the quotes if the path contains spaces, and keep `%command%` at the end. Works the same on Linux.
+
+Alternatively, just add `-condebug` by itself to Deadlock's launch options. This generates the log file the app needs, and you can start Deadlock RPC whenever you like.
 
 If Deadlock is already running when you start the app, it is detected automatically and your profile shows a generic **In Game** status. Hero, phase, and match details need the game log, so they appear once the game is (re)started with `-condebug` — either through the shortcut or with the Steam launch option set.
 
@@ -182,6 +190,8 @@ exit_when_game_closes = false
 | `--no-launch` | Skip launching Deadlock on startup, even if `launch_game_on_start` is enabled in config. |
 | `--no-shortcut` | Skip the shortcut install prompt. Useful for automated or CI setups. |
 | `--generate-config` | Write a fresh `config.toml` with all defaults to the current directory, then exit. |
+
+Any argument that is not one of the flags above is treated as a game command to launch (Steam wrapper mode via `%command%`, see [Installation](#installation)). `-condebug` is appended automatically.
 
 ## Building from Source
 
