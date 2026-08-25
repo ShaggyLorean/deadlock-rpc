@@ -410,7 +410,7 @@ mod tests {
         gs.apply_process_signal(true);
         assert!(!gs.phase.shows_hero());
         let cfg = crate::config::StatusStrings::default();
-        assert_eq!(gs.presence_status(None, None, &cfg), "In Game");
+        assert_eq!(gs.presence_status(None, None, None, &cfg), "In Game");
     }
 }
 

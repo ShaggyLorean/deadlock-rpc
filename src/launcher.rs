@@ -161,10 +161,7 @@ fn prompt_shortcut(dest: &std::path::Path) -> bool {
         .args(["--title", "Deadlock RPC", "--yesno", &text])
         .status();
 
-    match kdialog.ok().and_then(|s| s.code()) {
-        Some(0) => true,
-        _ => false,
-    }
+    matches!(kdialog.ok().and_then(|s| s.code()), Some(0))
 }
 
 #[cfg(all(windows, not(debug_assertions)))]
